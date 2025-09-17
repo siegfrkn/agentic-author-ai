@@ -1,4 +1,4 @@
-"""agentic-author-ai: a tiny, composable agent framework (stdlib-only)"""
+"""aagentic-author-ai: a tiny, composable agent framework (stdlib-only)"""
 from .messages import Message, Role
 from .memory import Memory
 from .tools import Tool, tool
@@ -21,4 +21,3 @@ __all__ = [
     "trace_span",
     "dump_trace",
 ]
-
