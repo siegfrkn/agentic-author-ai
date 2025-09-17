@@ -11,3 +11,4 @@ venv
 .vscode
 agentic_author_ai/data/*
 !agentic_author_ai/data/.gitkeep
+agentic_author_ai/data/raw/
