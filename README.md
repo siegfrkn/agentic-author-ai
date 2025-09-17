@@ -1,12 +1,9 @@
 # agentic-author-ai
-A python POC for an agentic AI system that is organized to write academic papers.
+
+A Python POC for an **agentic AI** system that is organized to write academic papers.
 
 A tiny, composable agent framework written in Python.  
-Includes:
-- `Agent`, `Router`, `Memory`, and `Tool` primitives
-- Example tools: `calc_tool`, `retrieve_tool`
-- A demo pipeline with `Researcher` and `Writer` agents
-- Support for either a dummy LLM (offline stub) or the OpenAI API
+Now includes a **Retrieval-Augmented Generation (RAG)** pipeline to ground agents in your session notes.
 
 ---
 
@@ -14,129 +11,115 @@ Includes:
 
 - **Python**: ≥ 3.12 (tested)
 - **pip**: ≥ 24.0
-- **virtualenv module**: `python3-venv` package installed on Ubuntu
+- **virtualenv module**: `python3-venv` on Ubuntu
+- **Packages** (minimum): `openai` (≥ 1.12.0), `faiss-cpu`, `numpy`
 
-### Python packages (minimum versions)
-
-| Package        | Minimum | Notes                                        |
-|----------------|---------|----------------------------------------------|
-| `openai`       | 1.12.0  | For `client.chat.completions`. ≥1.40 adds `responses.create` |
-| `typing-extensions` | 4.10.0 | Installed automatically with Python ≥3.12 |
-| `setuptools`   | 68.0    | Ensure up-to-date inside venv                |
-| `wheel`        | 0.42    | Recommended for builds                       |
-
-*(Other dependencies are stdlib only.)*
+> Tip: Use a virtual environment to avoid system Python issues.
 
 ---
 
 ## Setup
 
-### 1. Clone / open project
-
-Ensure you’re in the folder containing the `agentic_author_ai/` package.
-
-### 2. Create a virtual environment
-
-It’s safest to put your venv in Linux home if running under WSL:
-
+### 1) Create and activate a virtual environment
 ```bash
-# Install venv tools if missing
-sudo apt update
-sudo apt install -y python3-venv
-
-# Create venv
-python3 -m venv ~/venvs/agentic_author --upgrade-deps
-
-# Activate it
-source ~/venvs/agentic_author/bin/activate
-```
-
-*(If you prefer, you can also create `.venv` inside your project folder, but avoid `/mnt/c` if you see hangs in WSL2.)*
-
-### 3. Upgrade core tools
-
-```bash
+sudo apt update && sudo apt install -y python3-venv   # Ubuntu
+python3 -m venv ~/.venvs/agentic_author --upgrade-deps
+source ~/.venvs/agentic_author/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 ```
 
-### 4. Install dependencies
-
+### 2) Install dependencies
 ```bash
-pip install --upgrade openai
+pip install openai faiss-cpu numpy
 ```
+
+### 3) API key
+```bash
+export OPENAI_API_KEY="sk-xxxx"
+```
+(Windows PowerShell: `setx OPENAI_API_KEY "sk-xxxx"`)
 
 ---
 
-## API Key Setup
-
-The framework needs an OpenAI API key.
-
-### Option A: Temporary export (per terminal session)
-
-```bash
-export OPENAI_API_KEY="sk-xxxx"
-```
-
-On Windows PowerShell:
-```powershell
-setx OPENAI_API_KEY "sk-xxxx"
-```
-
-### Option B: Permanent setup in `~/.bashrc`
-
-Append this line to your `~/.bashrc` (Linux/WSL):
-
-```bash
-export OPENAI_API_KEY="sk-xxxx"
-```
-
-Reload:
-```bash
-source ~/.bashrc
-```
-
-## Running the Demo
-
-From the project’s parent folder (with venv active):
+## Running the classic demo (no RAG required)
 
 ```bash
 python -m agentic_author_ai.demo
 ```
+The demo seeds system + user messages, runs the **Researcher** and **Writer** agents, resolves tool calls via the **Router**, and prints the transcript and trace. fileciteturn2file1
 
-This will:
-1. Seed system + user messages
-2. Have the **Researcher** issue tool calls
-3. Resolve tool calls via `Router`
-4. Pass transcript to the **Writer** to summarize
-5. Print the transcript and trace
+---
+
+## New: Retrieval‑Augmented Generation (RAG)
+
+RAG lets agents pull relevant context from your meeting notes before answering.
+
+### Data directory layout
+```
+agentic_author_ai/
+  data/
+    raw/                  # optional: keep original PDFs/DOCX here
+    chunks.json           # produced by chunking
+    chunks.jsonl          # produced by chunking
+    rag.faiss             # produced by indexing
+    rag_meta.json         # produced by indexing
+```
+
+### Quick path if you already have chunks
+1) Put `chunks.json` (and `chunks.jsonl`) into `agentic_author_ai/data/`  
+2) Build the index:
+```bash
+python -m agentic_author_ai.index
+```
+3) Ask questions:
+```bash
+python -m agentic_author_ai.query --q "Key takeaways from the LSEG session" --filter session "Lseg Notes"
+```
+4) Run the agent demo (now backed by RAG retrieval):
+```bash
+python -m agentic_author_ai.demo
+```
+
+### Re‑chunking raw notes (optional)
+If you need to parse new PDFs/DOCX, use:
+```bash
+python -m agentic_author_ai.chunking --in agentic_author_ai/data/raw/*.pdf agentic_author_ai/data/raw/*.docx --out agentic_author_ai/data/chunks.json --jsonl
+```
 
 ---
 
 ## Switching LLMs
 
-By default, `demo.py` uses `OpenAILLM`.
+Use `OpenAI` by default. For offline testing, switch to `DummyLLM` in your demo agents. fileciteturn2file1
 
-For offline testing (no API calls / quota issues), switch to `DummyLLM` in `demo.py`:
+---
 
-```python
-from .llm import DummyLLM
-researcher = Researcher(llm=DummyLLM())
-writer = Writer(llm=DummyLLM())
+## Known Issues / Tips
+
+- **429 insufficient_quota**: add billing or switch temporarily to `DummyLLM`. fileciteturn2file1
+- Use a venv located in your home directory to avoid WSL slowdowns. fileciteturn2file1
+
+---
+
+## Mermaid: RAG data flow (files & transforms)
+
+```mermaid
+flowchart TD
+    subgraph Raw_Data["Raw Data"]
+        A1[PDFs]
+        A2[DOCX]
+    end
+
+    subgraph Data_Folder["agentic_author_ai/data"]
+        B1[chunks.json / chunks.jsonl]
+        B2[rag.faiss]
+        B3[rag_meta.json]
+    end
+
+    A1 -->|chunking.py| B1
+    A2 -->|chunking.py| B1
+    B1 -->|index.py embed| B2
+    B1 -->|index.py metadata| B3
 ```
 
----
-
-## Known Issues
-
-- **Quota exceeded (`429 insufficient_quota`)**: Means your OpenAI account has no free credits left; add billing details to continue.
-- **Externally-managed pip**: On Ubuntu ≥22.04, use a venv to avoid `externally-managed-environment` errors.
-- **Slow venv creation on `/mnt/c`**: Create the venv in `~/venvs/` instead and select it in VS Code when using WSL2 in Windows.
-
----
-
-## Next Steps
-
-- Upgrade `openai` to ≥1.40 for the unified `responses.create` API.
-- Add config flag to toggle between `DummyLLM` and `OpenAILLM` without editing code.
-- Extend with more real tools (retrieval, web calls, file I/O).
-- Train models to specific research data.
+See **RAG_PIPELINE.md** for a deeper dive and more diagrams.
