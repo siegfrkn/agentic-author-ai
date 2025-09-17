@@ -90,3 +90,154 @@ The **demo** shows how to compose these pieces into a small workflow: a Research
 - Extend by adding new tools in `tools.py` or new agent classes in `agent.py`.
 - To scale up: add planning/routing agents, connect to external APIs, or integrate a real RAG system.
 
+
+---
+
+
+## Diagrams (Mermaid)
+
+### 1) Class Diagram – core components
+```mermaid
+classDiagram
+    direction LR
+
+    class Message {
+      +role: str
+      +content: str
+      +meta: Dict
+      +to_dict() Dict
+    }
+
+    class Memory {
+      -scratch: List~Message~
+      -persist_path: Path?
+      -max_scratch: int
+      +add(msg: Message) void
+      +last(n: int) List~Message~
+      +all() List~Message~
+    }
+
+    class Tool {
+      +name: str
+      +description: str
+      +parameters: Dict
+      +func(async) -> str
+      +__call__(**kwargs) str
+    }
+
+    class LLM {
+      <<abstract>>
+      +complete(prompt: str) str
+      +acomplete(prompt: str) str
+    }
+
+    class DummyLLM {
+      +complete(prompt: str) str
+    }
+
+    class OpenAILLM {
+      +complete(prompt: str) str
+    }
+
+    class Agent {
+      +name: str
+      +system_prompt: str
+      +llm: LLM
+      +tools: Dict~str, Tool~
+      +memory: Memory
+      +add_tool(t: Tool) void
+      +prompt_from(msgs: Seq~Message~) str
+      +act(msgs: Seq~Message~) Message
+    }
+
+    class Router {
+      -agents: Dict~str, Agent~
+      -transcript: List~Message~
+      +add(msg: Message) void
+      +run_turn(agent_name: str) Message
+      +_resolve_tools(agent: Agent, reply: Message) async iterator
+      +chat(plan: Seq~str~, user_prompt: str) List~Message~
+    }
+
+    Agent "1" o--> "1" Memory
+    Agent "1" o--> "LLM" LLM
+    Agent "1" o--> "many" Tool
+    DummyLLM --|> LLM
+    OpenAILLM --|> LLM
+    Router "1" o--> "many" Agent
+    Router "1" o--> "many" Message : transcript
+    Message --> Memory : stored in
+```
+
+### 2) Sequence Diagram – demo flow (Researcher → Writer)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant R as Router
+    participant Res as Researcher (Agent)
+    participant W as Writer (Agent)
+    participant L1 as OpenAILLM/DummyLLM(Res)
+    participant L2 as OpenAILLM/DummyLLM(W)
+    participant Tcalc as Tool: calc
+
+    U->>R: Provide user prompt
+    R->>R: add(Message(user, prompt))
+
+    R->>Res: run_turn("Researcher")
+    Res->>L1: acomplete(prompt_from(transcript))
+    L1-->>Res: text with tool tags [[tool:calc {...}]]
+    Res-->>R: Message(content with tool tags)
+
+    loop resolve tools
+        R->>Tcalc: [[tool:calc {"expr":"(19.99*12)"}]]
+        Tcalc-->>R: "239.88"
+        R->>Tcalc: [[tool:calc {"expr":"(15*12)+50"}]]
+        Tcalc-->>R: "230"
+        R->>R: Patch reply with tool outputs
+    end
+    R->>R: add(Researcher message)
+
+    R->>W: run_turn("Writer")
+    W->>L2: acomplete(prompt_from(transcript))
+    L2-->>W: summary text using tool outputs
+    W-->>R: Message(final answer)
+    R->>R: add(Writer message)
+    R-->>U: Return final turn
+```
+
+### 3) Data Flow – where messages go
+```mermaid
+flowchart LR
+    subgraph Router
+      T[Transcript]
+      R_add[Router add]
+      R_resolve[Router resolve tools]
+    end
+
+    U[User] -->|user prompt| R_add
+    R_add --> T
+
+    subgraph Agents
+      A1[Researcher Agent]
+      A2[Writer Agent]
+      L1[LLM]
+      L2[LLM]
+      Tools[(Tools)]
+    end
+
+    T -->|build prompt| A1
+    A1 -->|call LLM| L1
+    L1 -->|reply with tool tags| A1
+    A1 --> R_resolve
+    R_resolve -->|tool calls| Tools
+    Tools -->|observations| R_resolve
+    R_resolve --> T
+
+    T --> A2
+    A2 -->|call LLM| L2
+    L2 -->|reply| A2
+    A2 --> R_add
+    R_add --> T
+
+```
