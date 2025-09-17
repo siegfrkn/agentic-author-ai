@@ -16,7 +16,6 @@ flowchart TD
     A --> E[Editor]
     E --> O[Final Draft]
 ```
-
 - **Planner**: Interprets the prompt, creates a step plan, and decides if external research is allowed.  
 - **RAG Retriever**: Always retrieves relevant internal notes using FAISS.  
 - **Researcher**: If permitted, searches the web for reputable sources and gathers excerpts.  
@@ -24,6 +23,32 @@ flowchart TD
 - **Editor**: Polishes the draft for clarity, flow, and citation consistency.  
 - **Output**: Returns a final draft and optionally saves it to a file.
 
+---
+
+## What is RAG?
+
+**RAG (Retrieval-Augmented Generation)** is a pattern that combines **retrieval** of relevant context with **generation** of natural language output.
+
+---
+
+### Why RAG matters
+- **Reduces hallucinations**: the model grounds its answers in actual text instead of inventing facts.  
+- **Keeps knowledge fresh**: update the knowledge base (e.g., PDFs, notes) without retraining the model.  
+- **Domain-specific answers**: responses reflect the organization’s own documents and data.
+
+---
+
+### How it works
+
+```mermaid
+flowchart TD
+    Q[Prompt or Subquestion] --> E[Embed Query]
+    E --> IX["FAISS Index"]
+    IX --> C[Top-k Chunks]
+    Q --> LM[Language Model]
+    C --> LM
+    LM --> O[Grounded Answer]
+```
 ---
 
 ## Detailed Flow
@@ -110,7 +135,6 @@ sequenceDiagram
     A->>E: Draft
     E-->>U: Final Draft (+ optional file)
 ```
-
 ---
 
 ## Why This Matters
