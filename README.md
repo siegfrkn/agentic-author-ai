@@ -123,14 +123,3 @@ flowchart TD
 ```
 
 See **RAG_PIPELINE.md** for a deeper dive and more diagrams.
-
-
-Usage with Make:
-# With both prompt + session
-OPENAI_API_KEY=sk-... make demo \
-  PROMPT="Write a 2-page paper on agentic AI for finance" \
-  SESSION="Lseg Notes"
-
-# With only prompt
-OPENAI_API_KEY=sk-... make demo \
-  PROMPT="Draft a short LinkedIn post about NatWest's AI accelerator"

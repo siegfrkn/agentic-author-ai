@@ -1,98 +1,240 @@
-# demo_writer.py
-"""
-Demo: Prompt → Planner → Author (writes) → Editor (edits), all using RAG.
+# agentic_author_ai/demo.py
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+from typing import List, Optional, Dict, Any
 
-Usage:
-    export OPENAI_API_KEY=sk-...
-    python -m agentic_author_ai.demo --prompt "Write a 2-page paper on agentic AI for finance" --session "Lseg Notes"
-
-Notes:
-- The Author and Editor both call into the RAG pipeline via query.answer().
-- The Planner coordinates outline → drafting → editing.
-"""
-
-import argparse, textwrap, os
-from typing import List, Optional, Dict
-from pathlib import Path
-
-from .planner import Planner
-from .query import answer
-from .rag_config import CHAT_MODEL
 from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Internal RAG (your existing module)
+from . import query as rag_query
+# External research helper (from researcher.py you added)
+from .researcher import gather_sources, SourceItem
+# Light-touch editor (from editor.py you added)
+from .editor import edit_text
 
-def llm_edit(text: str, prompt: str) -> str:
-    """Editor pass: grammar, clarity, adherence to prompt; preserve citations if present."""
-    sys = ("You are an expert editor. Improve grammar, clarity, and cohesion while preserving factual content "
-           "and any bracketed citations like [source:pp.x-y] or [session:section]. "
-           "Ensure the result directly addresses the original writing prompt.")
-    user = f"Original prompt:\n{prompt}\n\nDraft to edit:\n{text}"
-    r = client.chat.completions.create(
-        model=CHAT_MODEL,
-        messages=[{"role":"system","content":sys},{"role":"user","content":user}],
-        temperature=0.2,
+# ------------- Setup -------------
+def _require_api_key() -> str:
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        print("Error: OPENAI_API_KEY is not set.", file=sys.stderr)
+        sys.exit(2)
+    return key
+
+client = OpenAI(api_key=_require_api_key())
+
+
+# ------------- Planner -------------
+def _plan_with_policy(prompt: str) -> Dict[str, Any]:
+    """
+    Ask the Planner to decide whether external sources are allowed and return steps.
+    Output MUST be JSON (no prose).
+    """
+    system = (
+        "You are a planning agent for a writing system. You are doing your best to create a professional and"
+        "academic response using the agent team for a given prompt. It is important to take any length limitations"
+        "given in the prompt under strict consideration, but being concise is paramount, and if no length target is"
+        "given, make the response as concise as possible and as short as possible to answer the prompt.\n"
+        "Return STRICT JSON with keys:\n"
+        "{\n"
+        '  "allow_external": true|false,\n'
+        '  "rationale": "1-2 sentences why",\n'
+        '  "research_focus": ["topics to look up", ...],\n'
+        '  "steps": ["concise step 1", "concise step 2", ...]\n'
+        "}\n"
+        "Rules:\n"
+        "- If prompt requests or implies outside facts (e.g., 'own research', 'sources', 'cite', "
+        "  policy/market/industry assessments), set allow_external=true.\n"
+        "- If prompt forbids external sources or clearly indicates internal-notes-only, set false.\n"
+        "- Output valid JSON only (double quotes, no Markdown, no commentary)."
     )
-    return r.choices[0].message.content
 
-class SimplePlanner:
-    """A lightweight planner that creates an outline and orchestrates Author→Editor passes."""
-    def __init__(self, prompt: str, session: Optional[str] = None):
-        self.prompt = prompt
-        self.session = session
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"PROMPT:\n{prompt}\n\nReturn JSON ONLY."},
+        ],
+    )
+    raw = (r.choices[0].message.content or "").strip()
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("Planner output not an object")
+        for required in ("allow_external", "steps"):
+            if required not in data:
+                raise ValueError(f"Missing key: {required}")
+        data["allow_external"] = bool(data["allow_external"])
+        if "rationale" not in data:
+            data["rationale"] = ""
+        if "research_focus" not in data or not isinstance(data["research_focus"], list):
+            data["research_focus"] = []
+        return data
+    except Exception:
+        # Conservative fallback: avoid web calls; still provide usable steps.
+        return {
+            "allow_external": False,
+            "rationale": "Fallback (could not parse planner JSON).",
+            "research_focus": [],
+            "steps": ["Outline key sections", "Draft arguments", "Incorporate internal notes", "Revise", "Proofread"]
+        }
 
-    
 
-    def make_outline(self) -> List[str]:
-        q = (
-            "Create a concise outline (4-7 sections with short titles) for the following writing prompt. "
-            "Only output a bullet list with one section title per line.\n\n"
-            f"Prompt: {self.prompt}"
-        )
-        outline_text = answer(q, filters={"session":[self.session]} if self.session else None, use_rerank=True)
-        lines = [l.strip("-• ").strip() for l in outline_text.splitlines() if l.strip()]
-        # keep only 4-7 items, fall back if needed
-        out = [l for l in lines if len(l) < 140]
-        return out[:7] or ["Introduction","Background","Approach","Applications","Risks & Mitigations","Conclusion"]
+# ------------- Internal RAG -------------
+def _rag_retrieve(prompt: str, session: Optional[str] = None, k: int = 6) -> List[Dict[str, Any]]:
+    """
+    Calls your existing FAISS retriever.
+    Returns a list of chunks, each a dict with at least 'content' (adjust if your schema differs).
+    """
+    filters = {}
+    if session:
+        filters["session"] = session
+    try:
+        chunks = rag_query.retrieve(prompt, k=k, include=filters)
+        return chunks or []
+    except Exception as e:
+        print(f"RAG retrieval failed: {e}", file=sys.stderr)
+        return []
 
-    def author_section(self, title: str) -> str:
-        q = (
-            "Write a focused section for a paper. "
-            "Follow the title exactly; be specific, use the provided context only, and include citations like [source:pp.x-y] or [session:section]. "
-            "Avoid generic filler. Keep it 2–4 paragraphs.\n\n"
-            f"Section title: {title}\n"
-            f"Overall prompt: {self.prompt}"
-        )
-        return answer(q, filters={"session":[self.session]} if self.session else None, use_rerank=True)
 
-    def run(self) -> str:
-        outline = self.make_outline()
-        sections = []
-        for title in outline:
-            draft = self.author_section(title)
-            edited = llm_edit(draft, self.prompt)
-            sections.append(f"## {title}\n\n{edited.strip()}")
-        paper = "# " + self.prompt.strip().rstrip(".") + "\n\n" + "\n\n".join(sections)
-        return paper
+# ------------- Author -------------
+def _author(
+    prompt: str,
+    plan: Dict[str, Any],
+    session: Optional[str],
+    rag_chunks: Optional[List[Dict[str, Any]]],
+    web_sources: Optional[List[SourceItem]],
+) -> str:
+    """
+    Compose final draft using INTERNAL NOTES (RAG) and optional EXTERNAL SOURCES (web).
+    """
+    system = (
+        "You are an excellent academic writer. Use INTERNAL NOTES faithfully (primary source). "
+        "If EXTERNAL SOURCES are provided, integrate carefully, use short inline citations like [Site] or [Org, Year], "
+        "and add a final 'Sources' section listing title and URL. Do not invent citations or facts."
+    )
 
+    # Plan text
+    plan_text = "\n".join(f"- {s}" for s in plan.get("steps", []))
+
+    # Internal notes
+    rag_text = ""
+    if rag_chunks:
+        parts = []
+        for c in rag_chunks[:12]:
+            # Adjust field names if your chunk schema differs
+            content = c.get("content") or c.get("text") or ""
+            if content:
+                parts.append(content.strip())
+        if parts:
+            rag_text = "\n\nINTERNAL NOTES (RAG):\n" + "\n\n".join(parts)
+
+    # External sources
+    src_text = ""
+    if web_sources:
+        lines = []
+        for i, s in enumerate(web_sources, 1):
+            lines.append(f"[{i}] {s.title}\n{s.url}\nExcerpt: {s.excerpt[:300]}...")
+        src_text = "\n\nEXTERNAL SOURCES (web):\n" + "\n\n".join(lines)
+
+    user = (
+        f"SESSION: {session or 'N/A'}\n"
+        f"PLANNER: allow_external={plan.get('allow_external')} | reason: {plan.get('rationale','')}\n"
+        f"RESEARCH FOCUS: {', '.join(plan.get('research_focus', [])) or 'N/A'}\n\n"
+        f"PLAN:\n{plan_text}\n\n"
+        f"PROMPT:\n{prompt}\n"
+        f"{rag_text}"
+        f"{src_text}"
+    )
+
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.5,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+    return (r.choices[0].message.content or "").strip()
+
+
+# ------------- CLI -------------
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--prompt", required=True, help="Writing prompt for the paper")
-    ap.add_argument("--session", help="Optional RAG session filter (e.g., 'Lseg Notes')")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Agentic Author Demo (Planner controls external research; RAG always on; Editor finalizes)"
+    )
+    parser.add_argument("--prompt", "--q", dest="prompt", default=None, help="Writing prompt")
+    parser.add_argument("--session", dest="session", default=None, help="Optional session/context hint for internal RAG")
+    # Optional manual overrides (useful for testing)
+    parser.add_argument("--force-external", action="store_true", help="Force external research on")
+    parser.add_argument("--no-external", action="store_true", help="Force external research off")
+    parser.add_argument("--max-sources", type=int, default=4, help="Max external sources to gather if enabled")
+    # Editor preferences + file output
+    parser.add_argument("--tone", default=None, help="Editor tone (e.g., 'formal', 'executive concise')")
+    parser.add_argument("--length", default=None, help="Length hint (e.g., '600-800 words', '2 pages')")
+    parser.add_argument("--format", dest="fmt", default=None, help="Format hint (e.g., 'markdown', 'memo')")
+    parser.add_argument("--out", default=None, help="Write final output to this file (e.g., data/out.md)")
 
-    # Planner orchestrates
-    _ = Planner  # not used directly here, but kept to align with requested renaming
+    args = parser.parse_args()
 
-    planner = SimplePlanner(prompt=args.prompt, session=args.session)
-    paper = planner.run()
+    prompt = args.prompt or "Write a short example to prove the pipeline works."
+    session = args.session
 
-    # Save to file and print a short preview
-    out = Path("paper.md")
-    out.write_text(paper, encoding="utf-8")
-    print("Wrote", out.resolve())
-    print("\n--- Preview ---\n")
-    print("\n".join(paper.splitlines()[:40]))
+    # 1) Planner decides policy + steps
+    plan = _plan_with_policy(prompt)
+
+    # 2) Apply CLI overrides (if any)
+    if args.force_external:
+        plan["allow_external"] = True
+    if args.no_external:
+        plan["allow_external"] = False
+
+    # 3) Always retrieve INTERNAL notes (RAG)
+    rag_chunks = _rag_retrieve(prompt, session=session, k=6)
+
+    # 4) Conditionally do EXTERNAL research
+    web_sources: Optional[List[SourceItem]] = None
+    if plan.get("allow_external", False):
+        # You can build a tighter web query; using prompt is okay as a baseline.
+        q = (prompt[:160] + "...") if len(prompt) > 160 else prompt
+        try:
+            web_sources = gather_sources(q, max_sources=max(1, args.max_sources))
+        except Exception as e:
+            print(f"External research failed: {e}", file=sys.stderr)
+            web_sources = None
+
+    # 5) Author composes with both
+    draft = _author(prompt, plan, session=session, rag_chunks=rag_chunks, web_sources=web_sources)
+
+    # 6) Editor finalizes
+    final_text = edit_text(draft, tone=args.tone, length_hint=args.length, format_hint=args.fmt)
+
+    # 7) Console summary + optional save
+    print("\n=== PLAN (from Planner) ===")
+    print(json.dumps(plan, indent=2))
+
+    if rag_chunks:
+        print(f"\n=== INTERNAL NOTES fetched (RAG): {len(rag_chunks)} chunks ===")
+
+    if web_sources:
+        print("\n=== EXTERNAL SOURCES (auto-collected) ===")
+        for i, s in enumerate(web_sources, 1):
+            print(f"[{i}] {s.title}\n{s.url}\nExcerpt: {s.excerpt[:200]}...\n")
+
+    print("\n=== DRAFT (edited) ===\n" + final_text)
+
+    if args.out:
+        # Create directory if needed (handles plain filenames too)
+        outdir = os.path.dirname(args.out)
+        if outdir:
+            os.makedirs(outdir, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(final_text)
+        print(f"\n[saved to {args.out}]")
+
 
 if __name__ == "__main__":
     main()

@@ -25,7 +25,11 @@ RUN pip install --upgrade pip \
     faiss-cpu \
     numpy \
     pypdf \
-    python-docx
+    python-docx \
+    duckduckgo-search \
+    readability-lxml \
+    requests \
+    lxml
 
 # Copy project
 COPY . /app
