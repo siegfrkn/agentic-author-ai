@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 
 import requests
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from readability import Document
 from lxml import html  # noqa: F401
 

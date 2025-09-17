@@ -31,7 +31,7 @@ RUN pip install --upgrade pip \
     numpy \
     pypdf \
     python-docx \
-    duckduckgo-search \
+    ddgs \
     readability-lxml \
     requests \
     lxml

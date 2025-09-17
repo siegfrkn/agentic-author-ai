@@ -21,12 +21,15 @@ index:
 # Run the writing demo with a prompt and optional session
 demo:
 	@if [ -z "$(PROMPT)" ]; then \
-		echo 'Usage: make demo PROMPT="Write something" [SESSION="Session Name"]'; \
+		echo 'Usage: make demo PROMPT="Write something" [SESSION="Session Name"] [OUT="file.md"] [ARGS="--tone formal --length \"600-800 words\" ...]'; \
 		exit 1; \
 	fi
 	docker compose run --rm agentic-author \
 		python -m agentic_author_ai.demo \
-		--prompt "$(PROMPT)" $(if $(SESSION),--session "$(SESSION)",)
+		--prompt "$(PROMPT)" \
+		$(if $(SESSION),--session "$(SESSION)",) \
+		$(if $(OUT),--out "$(OUT)",) \
+		$(ARGS)
 
 # Ask a question against the index
 query:

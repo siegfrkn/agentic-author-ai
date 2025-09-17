@@ -243,6 +243,5 @@ def main():
             f.write(final_text)
         print(f"\n[saved to {args.out}]")
 
-
 if __name__ == "__main__":
     main()

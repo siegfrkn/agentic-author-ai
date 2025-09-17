@@ -97,9 +97,7 @@ The `Makefile` provides shortcuts for common commands:
    ```
 5. Run a full authored piece:  
    ```bash
-   make demo PROMPT="Write a 2-page paper on AI regulation trends" \
-   OUT="agentic_author_ai/data/data-regulation.md" \
-   ARGS='--tone "executive concise" --format markdown --length "300 words"'
+   make demo PROMPT="Write a 2-page paper on AI regulation trends" SESSION="Natwest" --tone="formal" --out data/regulation.md
    ```
 
 ---
