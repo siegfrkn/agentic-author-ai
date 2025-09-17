@@ -109,3 +109,77 @@ Programmatic call:
 from agentic_author_ai.query import answer
 print(answer("Key points from LSEG", filters={"session": ["Lseg Notes"]}))
 ```
+
+
+---
+
+## Planner, Author, Editor Collaboration
+
+We introduced a new **demo_writer** pipeline that uses the renamed **Planner** (formerly Router) to coordinate two agents:
+- **Author**: Writes each paper section grounded in RAG context.
+- **Editor**: Improves grammar, cohesion, and adherence to the original prompt, while preserving citations.
+
+### Runtime sequence (writing flow)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant Planner
+    participant Author
+    participant Editor
+    participant RetrieveTool as RAG Retrieve
+    participant FAISS as FAISS Index
+    participant LLM
+
+    User->>Planner: Provide writing prompt (and optional session)
+    Planner->>Author: Create outline + draft sections
+
+    loop For each section in outline
+        Author->>RetrieveTool: retrieve(query, session?)
+        RetrieveTool->>FAISS: search(query embedding)
+        FAISS-->>RetrieveTool: top-k chunks + metadata
+        RetrieveTool-->>Author: context with citations
+
+        Author->>LLM: "Write section using ONLY this context"
+        LLM-->>Author: Draft section (with citations)
+
+        Author->>Editor: Send section + original prompt
+        Editor->>LLM: "Edit for grammar, clarity, adherence"
+        LLM-->>Editor: Edited section (citations preserved)
+        Editor-->>Planner: Return edited section
+    end
+
+    Planner-->>User: Assemble and return paper.md
+```
+
+### Component view
+
+```mermaid
+flowchart LR
+    subgraph UserApp["demo_writer.py CLI"]
+        P[Planner]
+        A[Author]
+        E[Editor]
+    end
+
+    subgraph RAG["RAG Pipeline"]
+        Q[query.py]
+        I[index.py]
+        C[chunking.py]
+        F[rag.faiss]
+        M[rag_meta.json]
+    end
+
+    U[(Prompt & optional session)] --> P
+    P --> A
+    A -->|retrieve| Q
+    Q --> F
+    Q --> M
+    A -->|LLM write| LLM[(Chat Model)]
+    E -->|LLM edit| LLM
+
+    P --> E
+    E --> P
+    P -->|paper.md| U[(Output)]
+```
