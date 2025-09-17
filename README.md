@@ -104,3 +104,14 @@ The `Makefile` provides shortcuts for common commands:
    ```
 
 ---
+
+## Authorship & AI Assistance
+
+This project is authored by **Katrina Nicole Siegfried**.  
+Some text and code were drafted or edited with the assistance of AI tools.  
+All contributions were reviewed, validated, and approved by the author.
+
+---
+
+## License
+MIT License – see [LICENSE](LICENSE) for details.
