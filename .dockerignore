@@ -1,0 +1,13 @@
+.git
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+.venv
+venv
+.idea
+.vscode
+agentic_author_ai/data/*
+!agentic_author_ai/data/.gitkeep
