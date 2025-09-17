@@ -33,7 +33,7 @@ Includes:
 
 ### 1. Clone / open project
 
-Ensure you’re in the folder containing the `mini_agentic_ai/` package.
+Ensure you’re in the folder containing the `agentic_author_ai/` package.
 
 ### 2. Create a virtual environment
 
@@ -45,10 +45,10 @@ sudo apt update
 sudo apt install -y python3-venv
 
 # Create venv
-python3 -m venv ~/venvs/mini_agentic --upgrade-deps
+python3 -m venv ~/venvs/agentic_author --upgrade-deps
 
 # Activate it
-source ~/venvs/mini_agentic/bin/activate
+source ~/venvs/agentic_author/bin/activate
 ```
 
 *(If you prefer, you can also create `.venv` inside your project folder, but avoid `/mnt/c` if you see hangs in WSL2.)*
@@ -100,7 +100,7 @@ source ~/.bashrc
 From the project’s parent folder (with venv active):
 
 ```bash
-python -m mini_agentic_ai.demo
+python -m agentic_author_ai.demo
 ```
 
 This will:
