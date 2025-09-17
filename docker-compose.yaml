@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  agentic-author:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agentic-author:latest
+    environment:
+      # Set this in your shell or a .env file (Compose auto-loads .env)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    working_dir: /app
+    volumes:
+      - ./agentic_author_ai/data:/app/agentic_author_ai/data
+      # If you want hot-reload of code while developing:
+      # - .:/app
+    entrypoint: ["/usr/bin/tini", "--"]
+    command: ["python", "-m", "agentic_author_ai.demo"]
