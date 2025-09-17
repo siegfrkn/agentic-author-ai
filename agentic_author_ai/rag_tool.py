@@ -1,4 +1,12 @@
-# rag_tool.py
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Katrina Nicole Siegfried
+# Author: Katrina Nicole Siegfried
+# Note: Portions of this file were drafted/edited with AI assistance and reviewed by the author.
+
+# -------------------------------
+# RAG Tool
+# -------------------------------
+
 """
 Drop-in Tool for your agent framework using the RAG index built by index.py.
 

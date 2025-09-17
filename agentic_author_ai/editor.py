@@ -1,4 +1,12 @@
-# agentic_author_ai/editor.py
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Katrina Nicole Siegfried
+# Author: Katrina Nicole Siegfried
+# Note: Portions of this file were drafted/edited with AI assistance and reviewed by the author.
+
+# -------------------------------
+# Editor
+# -------------------------------
+
 from __future__ import annotations
 import os
 from typing import Optional

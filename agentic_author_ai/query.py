@@ -1,4 +1,12 @@
-# query.py
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Katrina Nicole Siegfried
+# Author: Katrina Nicole Siegfried
+# Note: Portions of this file were drafted/edited with AI assistance and reviewed by the author.
+
+# -------------------------------
+# Query
+# -------------------------------
+
 """
 Step 3 & 4: Retrieval, optional re-ranking, and grounded answering.
 Provides make_retrieve_tool(ToolClass) to integrate with your framework.
