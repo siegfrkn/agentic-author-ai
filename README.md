@@ -1,125 +1,103 @@
-# agentic-author-ai
+# Agentic Author AI
 
-A Python POC for an **agentic AI** system that is organized to write academic papers.
-
-A tiny, composable agent framework written in Python.  
-Now includes a **Retrieval-Augmented Generation (RAG)** pipeline to ground agents in your session notes.
+Agentic Author AI is a modular writing system that demonstrates how planning, retrieval, external research, authorship, and editing agents can work together. It is packaged in a Docker container so that it can run reproducibly without installing local dependencies.
 
 ---
 
-## Requirements
+## About
 
-- **Python**: ≥ 3.12 (tested)
-- **pip**: ≥ 24.0
-- **virtualenv module**: `python3-venv` on Ubuntu
-- **Packages** (minimum): `openai` (≥ 1.12.0), `faiss-cpu`, `numpy`
-
-> Tip: Use a virtual environment to avoid system Python issues.
+The system accepts a prompt, determines whether external sources are allowed, retrieves relevant internal notes (via RAG), optionally gathers reliable external web sources, and then composes a draft that is polished by an editing step. This setup is intended as a teaching and experimentation environment for multi-agent writing pipelines.
 
 ---
 
-## Setup
+## Quickstart
 
-### 1) Create and activate a virtual environment
+### Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) (with Compose v2)
+- `make` (standard on Linux/macOS; install `make` on Windows via WSL or package manager)
+- An OpenAI API key
+
+### Clone and build
 ```bash
-sudo apt update && sudo apt install -y python3-venv   # Ubuntu
-python3 -m venv ~/.venvs/agentic_author --upgrade-deps
-source ~/.venvs/agentic_author/bin/activate
-python -m pip install --upgrade pip setuptools wheel
+git clone https://github.com/siegfrkn/agentic-author-ai.git
+cd agentic-author-ai
+make build
 ```
 
-### 2) Install dependencies
+### Set API key
 ```bash
-pip install openai faiss-cpu numpy
+export OPENAI_API_KEY=sk-...
 ```
 
-### 3) API key
+### Run the demo
 ```bash
-export OPENAI_API_KEY="sk-xxxx"
+make demo PROMPT="Write a 2-page paper on agentic AI for finance" SESSION="Lseg Notes"
 ```
-(Windows PowerShell: `setx OPENAI_API_KEY "sk-xxxx"`)
+
+This runs the full pipeline (Planner → RAG Retriever → optional Researcher → Author → Editor) inside the container.
 
 ---
 
-## Running the classic demo (no RAG required)
+## Makefile Targets
 
-```bash
-python -m agentic_author_ai.demo
-```
-The demo seeds system + user messages, runs the **Researcher** and **Writer** agents, resolves tool calls via the **Router**, and prints the transcript and trace. fileciteturn2file1
+The `Makefile` provides shortcuts for common commands:
 
----
+- **`make build`**  
+  Builds the Docker image. Required after changing dependencies in `Dockerfile`.  
+  Example: `make build`
 
-## New: Retrieval‑Augmented Generation (RAG)
+- **`make demo PROMPT="..." [SESSION="..."] [extra args]`**  
+  Runs the full demo.  
+  Arguments:  
+  - `PROMPT`: Required writing prompt.  
+  - `SESSION`: Optional session label to filter RAG notes.  
+  - Extra args (optional):
+    - `--force-external` or `--no-external` to override planner’s decision.
+    - `--tone`, `--length`, `--format` to guide the Editor.
+    - `--out FILE` to save the final draft.  
+  Example:  
+  ```bash
+  make demo PROMPT="Draft a LinkedIn post about AI in healthcare" SESSION="Natwest" --tone="executive concise"
+  ```
 
-RAG lets agents pull relevant context from your meeting notes before answering.
+- **`make index`**  
+  Builds a FAISS index from pre-chunked documents. Expects `chunks.json` or `chunks.jsonl` in `agentic_author_ai/data/`.
 
-### Data directory layout
-```
-agentic_author_ai/
-  data/
-    raw/                  # optional: keep original PDFs/DOCX here
-    chunks.json           # produced by chunking
-    chunks.jsonl          # produced by chunking
-    rag.faiss             # produced by indexing
-    rag_meta.json         # produced by indexing
-```
+- **`make query Q="..." [ARGS='--filter ...']`**  
+  Queries the FAISS index directly.  
+  Example:  
+  ```bash
+  make query Q="What are the key takeaways from the LSEG session?" ARGS='--filter session "Lseg Notes"'
+  ```
 
-### Quick path if you already have chunks
-1) Put `chunks.json` (and `chunks.jsonl`) into `agentic_author_ai/data/`  
-2) Build the index:
-```bash
-python -m agentic_author_ai.index
-```
-3) Ask questions:
-```bash
-python -m agentic_author_ai.query --q "Key takeaways from the LSEG session" --filter session "Lseg Notes"
-```
-4) Run the agent demo (now backed by RAG retrieval):
-```bash
-python -m agentic_author_ai.demo
-```
-
-### Re‑chunking raw notes (optional)
-If you need to parse new PDFs/DOCX, use:
-```bash
-python -m agentic_author_ai.chunking --in agentic_author_ai/data/raw/*.pdf agentic_author_ai/data/raw/*.docx --out agentic_author_ai/data/chunks.json --jsonl
-```
+- **`make chunk`**  
+  Splits raw PDF/DOCX files in `agentic_author_ai/data/raw/` into `chunks.json` for indexing.  
+  Example:  
+  ```bash
+  make chunk
+  make index
+  ```
 
 ---
 
-## Switching LLMs
+## Example End-to-End Usage
 
-Use `OpenAI` by default. For offline testing, switch to `DummyLLM` in your demo agents. fileciteturn2file1
+1. Place session notes (`.pdf` or `.docx`) into `agentic_author_ai/data/raw/`.  
+2. Chunk into JSON:  
+   ```bash
+   make chunk
+   ```
+3. Build FAISS index:  
+   ```bash
+   make index
+   ```
+4. Ask a question:  
+   ```bash
+   make query Q="Summarize NatWest AI themes" ARGS='--filter session "Natwest"'
+   ```
+5. Run a full authored piece:  
+   ```bash
+   make demo PROMPT="Write a 2-page paper on AI regulation trends" SESSION="Natwest" --tone="formal" --out data/regulation.md
+   ```
 
 ---
-
-## Known Issues / Tips
-
-- **429 insufficient_quota**: add billing or switch temporarily to `DummyLLM`. fileciteturn2file1
-- Use a venv located in your home directory to avoid WSL slowdowns. fileciteturn2file1
-
----
-
-## Mermaid: RAG data flow (files & transforms)
-
-```mermaid
-flowchart TD
-    subgraph Raw_Data["Raw Data"]
-        A1[PDFs]
-        A2[DOCX]
-    end
-
-    subgraph Data_Folder["agentic_author_ai/data"]
-        B1[chunks.json / chunks.jsonl]
-        B2[rag.faiss]
-        B3[rag_meta.json]
-    end
-
-    A1 -->|chunking.py| B1
-    A2 -->|chunking.py| B1
-    B1 -->|index.py embed| B2
-    B1 -->|index.py metadata| B3
-```
-
-See **RAG_PIPELINE.md** for a deeper dive and more diagrams.
