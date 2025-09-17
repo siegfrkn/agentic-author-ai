@@ -1,73 +1,98 @@
-# -------------------------------
-# Demo
-# -------------------------------
+# demo_writer.py
+"""
+Demo: Prompt → Planner → Author (writes) → Editor (edits), all using RAG.
 
-from __future__ import annotations
-import asyncio
-import random
-from .agent import Agent
-from .llm import OpenAILLM  # <-- use OpenAI adapter
-from .messages import Message
-from .router import Router
-from .tools import calc_tool, retrieve_tool
-from .tracing import dump_trace
+Usage:
+    export OPENAI_API_KEY=sk-...
+    python -m agentic_author_ai.demo --prompt "Write a 2-page paper on agentic AI for finance" --session "Lseg Notes"
 
-class Researcher(Agent):
-    def __init__(self):
-        super().__init__(
-            name="Researcher",
-            system_prompt=(
-                "You are a concise research assistant. Identify key facts, missing info,\n"
-                "and call tools where helpful. Prefer bullet points."
-            ),
-            llm=OpenAILLM(model="gpt-4o-mini"),
-            tools=[calc_tool, retrieve_tool],
-        )
+Notes:
+- The Author and Editor both call into the RAG pipeline via query.answer().
+- The Planner coordinates outline → drafting → editing.
+"""
 
-class Writer(Agent):
-    def __init__(self):
-        super().__init__(
-            name="Writer",
-            system_prompt=(
-                "You transform research into a clear, user-friendly answer. Cite any\n"
-                "tool outputs inline. Keep it under 8 bullets or 200 words."
-            ),
-            llm=OpenAILLM(model="gpt-4o-mini"),
-            tools=[calc_tool],
-        )
+import argparse, textwrap, os
+from typing import List, Optional, Dict
+from pathlib import Path
 
-async def run_demo() -> None:
-    random.seed(42)
-    router = Router({"Researcher": Researcher(), "Writer": Writer()})
+from .planner import Planner
+from .query import answer
+from .rag_config import CHAT_MODEL
+from openai import OpenAI
 
-    user_prompt = (
-        "Compare the monthly cost of two SaaS plans: Plan A is $19.99/user for 12 users;\n"
-        "Plan B is $15/user for 12 users plus a $50 base fee. Show the math with a calculator,\n"
-        "then summarize which is cheaper and by how much."
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def llm_edit(text: str, prompt: str) -> str:
+    """Editor pass: grammar, clarity, adherence to prompt; preserve citations if present."""
+    sys = ("You are an expert editor. Improve grammar, clarity, and cohesion while preserving factual content "
+           "and any bracketed citations like [source:pp.x-y] or [session:section]. "
+           "Ensure the result directly addresses the original writing prompt.")
+    user = f"Original prompt:\n{prompt}\n\nDraft to edit:\n{text}"
+    r = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=[{"role":"system","content":sys},{"role":"user","content":user}],
+        temperature=0.2,
     )
+    return r.choices[0].message.content
 
-    # Seed a calculation hint so the router resolves tool calls in this demo
-    tool_hint = (
-        "\n[[tool:calc {\"expr\":\"(19.99*12)\"}]]\n"
-        "\n[[tool:calc {\"expr\":\"(15*12)+50\"}]]\n"
-    )
+class SimplePlanner:
+    """A lightweight planner that creates an outline and orchestrates Author→Editor passes."""
+    def __init__(self, prompt: str, session: Optional[str] = None):
+        self.prompt = prompt
+        self.session = session
 
-    router.add(Message(role="system", content="Demo started"))
-    router.add(Message(role="user", content=user_prompt))
-    router.add(Message(role="Researcher", content=f"Calculations:{tool_hint}"))
+    
 
-    await router.run_turn("Writer")
+    def make_outline(self) -> List[str]:
+        q = (
+            "Create a concise outline (4-7 sections with short titles) for the following writing prompt. "
+            "Only output a bullet list with one section title per line.\n\n"
+            f"Prompt: {self.prompt}"
+        )
+        outline_text = answer(q, filters={"session":[self.session]} if self.session else None, use_rerank=True)
+        lines = [l.strip("-• ").strip() for l in outline_text.splitlines() if l.strip()]
+        # keep only 4-7 items, fall back if needed
+        out = [l for l in lines if len(l) < 140]
+        return out[:7] or ["Introduction","Background","Approach","Applications","Risks & Mitigations","Conclusion"]
 
-    print("\n=== Transcript ===")
-    for m in router.transcript:
-        if m.role == "system":
-            continue
-        print(f"[{m.role}] {m.content}")
+    def author_section(self, title: str) -> str:
+        q = (
+            "Write a focused section for a paper. "
+            "Follow the title exactly; be specific, use the provided context only, and include citations like [source:pp.x-y] or [session:section]. "
+            "Avoid generic filler. Keep it 2–4 paragraphs.\n\n"
+            f"Section title: {title}\n"
+            f"Overall prompt: {self.prompt}"
+        )
+        return answer(q, filters={"session":[self.session]} if self.session else None, use_rerank=True)
 
-    print("\n" + dump_trace())
+    def run(self) -> str:
+        outline = self.make_outline()
+        sections = []
+        for title in outline:
+            draft = self.author_section(title)
+            edited = llm_edit(draft, self.prompt)
+            sections.append(f"## {title}\n\n{edited.strip()}")
+        paper = "# " + self.prompt.strip().rstrip(".") + "\n\n" + "\n\n".join(sections)
+        return paper
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--prompt", required=True, help="Writing prompt for the paper")
+    ap.add_argument("--session", help="Optional RAG session filter (e.g., 'Lseg Notes')")
+    args = ap.parse_args()
+
+    # Planner orchestrates
+    _ = Planner  # not used directly here, but kept to align with requested renaming
+
+    planner = SimplePlanner(prompt=args.prompt, session=args.session)
+    paper = planner.run()
+
+    # Save to file and print a short preview
+    out = Path("paper.md")
+    out.write_text(paper, encoding="utf-8")
+    print("Wrote", out.resolve())
+    print("\n--- Preview ---\n")
+    print("\n".join(paper.splitlines()[:40]))
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(run_demo())
-    except KeyboardInterrupt:
-        pass
+    main()
